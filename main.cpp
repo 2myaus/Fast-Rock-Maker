@@ -116,33 +116,39 @@ namespace fastrm{
                 float density;
             };
 
+            waterSurfaceNode *nodeArray = (waterSurfaceNode*)malloc(sizeof(waterSurfaceNode) * width * height);
+            unsigned long numNodes = 0;
+
             waterSurfaceNode *headNode = nullptr;
 
             std::mutex nodeLock;
-            const std::function<void(unsigned int x, unsigned int y)> addSurfaceNode = [this, &headNode, &waterfied, &nodeLock](unsigned int x, unsigned int y) -> void{
-                std::lock_guard<std::mutex> lock(nodeLock);
+            const std::function<void(unsigned int, unsigned int)> addSurfaceNode = [this, &headNode, &waterfied, &nodeLock, &nodeArray, &numNodes](unsigned int x, unsigned int y) -> void{
                 unsigned int gridoff = y * width + x;
+                std::lock_guard<std::mutex> lock(nodeLock);
                 if(waterfied[gridoff] >> 1) return;
                 waterfied[gridoff] |= 0b00000010;
                 waterSurfaceNode *current = headNode;
                 float density = getBlock(x, y)->density;
-                if(current == nullptr && headNode == nullptr){
-                    headNode = (waterSurfaceNode *)malloc(sizeof(waterSurfaceNode));
+                if(current == nullptr){
+                    headNode = nodeArray + numNodes;
+                    numNodes++;
                     current = headNode;
                 }
                 else{
                     while (true) {
-                        if (density < current->density) {
+                        if (density <= current->density) {
                             if (current->left == nullptr) {
-                                current->left = (waterSurfaceNode *)malloc(sizeof(waterSurfaceNode));
+                                current->left = nodeArray + numNodes;
+                                numNodes++;
                                 current = current->left;
                                 break;
                             }
                             current = current->left;
                         }
-                        else if (density >= current->density) {
+                        else if (density > current->density) {
                             if (current->right == nullptr) {
-                                current->right = (waterSurfaceNode *)malloc(sizeof(waterSurfaceNode));
+                                current->right = nodeArray + numNodes;
+                                numNodes++;
                                 current = current->right;
                                 break;
                             }
@@ -157,15 +163,6 @@ namespace fastrm{
                 current->density = density;
             };
 
-            const std::function<waterSurfaceNode*()> getWeakestNode = [&headNode, &nodeLock]() -> waterSurfaceNode*{
-                std::lock_guard<std::mutex> lock(nodeLock);
-                waterSurfaceNode *current = headNode;
-                while(current->left != nullptr){
-                    current = current->left;
-                }
-                return current;
-            };
-
             const std::function<void()> removeWeakestNode = [&headNode, &nodeLock]() -> void{
                 std::lock_guard<std::mutex> lock(nodeLock);
                 waterSurfaceNode *current = headNode;
@@ -176,11 +173,11 @@ namespace fastrm{
                 }
                 if(parent == nullptr){
                     headNode = current->right;
-                    free(current);
+                    //free(current);
                     return;
                 }
                 parent->left = current->right;
-                free(current);
+                //free(current);
             };
 
             const std::function<waterSurfaceNode()> getAndRemoveWeakestNode = [&headNode, &nodeLock]() -> waterSurfaceNode{
@@ -199,21 +196,7 @@ namespace fastrm{
 
 freeAndReturn:
                 waterSurfaceNode copy = *current;
-                free(current);
                 return copy;
-            };
-
-            const std::function<void(const waterSurfaceNode*)> freeNode = [&freeNode, &headNode, &removeWeakestNode](const waterSurfaceNode *toFree) -> void{
-                // if(toFree->left != nullptr){
-                //     freeNode(toFree->left);
-                // }
-                // if(toFree->right != nullptr){
-                //     freeNode(toFree->left);
-                // }
-                // free((void*)toFree);
-                while(headNode != nullptr){
-                    removeWeakestNode();
-                }
             };
 
             addSurfaceNode(width / 2, 0);
@@ -254,7 +237,13 @@ freeAndReturn:
                 threads[n].join();
             }
 
-            freeNode(headNode);
+            /*
+            while(headNode != nullptr){
+                removeWeakestNode();
+            }
+            */
+           free(waterfied);
+           free(nodeArray);
         }
 
         void SmoothCellSection(unsigned int xi, unsigned int yi, unsigned int xf, unsigned int yf){ //Smooth a rectangular area from xi, yi to xf, yf excluding xf/yf
