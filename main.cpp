@@ -7,6 +7,7 @@
 #include <thread>
 #include <mutex>
 
+
 namespace fastrm{
     class Block{
         private:
@@ -100,7 +101,7 @@ namespace fastrm{
 
         void ErodeCrockTunnels(){
             const float waterDensity = 0.6;
-            const unsigned short numThreads = 16;
+            const unsigned short numThreads = 1;
 
             const unsigned int waterPoints = waterDensity * width * height;
 
@@ -229,13 +230,14 @@ freeAndReturn:
                 }
             };
 
-            std::thread threads[numThreads];
+            /*std::thread threads[numThreads];
             for(unsigned short n = 0; n < numThreads; n++){
                 threads[n] = std::thread(erodeTunnels);
             }
             for(unsigned short n = 0; n < numThreads; n++){
                 threads[n].join();
-            }
+            }*/
+            erodeTunnels();
 
             /*
             while(headNode != nullptr){
@@ -336,12 +338,21 @@ freeAndReturn:
 
 int main(){
     fastrm::Cave cave = fastrm::Cave(2000, 2000);
+
+    long start = std::chrono::duration_cast< std::chrono::milliseconds >(
+    std::chrono::system_clock::now().time_since_epoch()
+    ).count();
     cave.PopulateDensity();
     printf("Population done\n");
     cave.Erode();
     printf("Erosion done\n");
     cave.Smooth();
     printf("Smoothing done\n");
+    long end = std::chrono::duration_cast< std::chrono::milliseconds >(
+    std::chrono::system_clock::now().time_since_epoch()
+    ).count();
+
+    printf("Done! Took %ldms\n", end - start);
 
     float maxVal = 0;
     for (unsigned int y = 0; y < cave.getHeight(); y++) {
