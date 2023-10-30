@@ -46,6 +46,8 @@ namespace fastrm{
             const unsigned int meanRadius = 10;
             const unsigned int maxRadiusDeviation = 5;
 
+            const unsigned short numThreads = 2;
+
             const unsigned int numPoints = pointDensity * width * height;
 
             std::random_device rd;
@@ -53,55 +55,67 @@ namespace fastrm{
 
             std::uniform_int_distribution<unsigned int> randR(meanRadius - maxRadiusDeviation, meanRadius + maxRadiusDeviation);
 
-            for(unsigned int i = 0; i < numPoints; i++){
-                const unsigned int r = randR(gen);
+            unsigned int i = 0;
+            const std::function<void()> drawDensity = [&i, &numPoints, &gen, &randR, this]() -> void{
+                while(i < numPoints){
+                    const unsigned int r = randR(gen);
 
-                std::uniform_int_distribution<unsigned int> randX(0, width - 1 + 2 * r);
-                std::uniform_int_distribution<unsigned int> randY(0, height - 1 + 2 * r);
+                    std::uniform_int_distribution<unsigned int> randX(0, width - 1 + 2 * r);
+                    std::uniform_int_distribution<unsigned int> randY(0, height - 1 + 2 * r);
 
-                const unsigned int cx = randX(gen);
-                const unsigned int cy = randY(gen);
+                    const unsigned int cx = randX(gen);
+                    const unsigned int cy = randY(gen);
 
-                const unsigned int r2 = r * r;
+                    const unsigned int r2 = r * r;
 
-                for(unsigned int dx = 0; dx <= r; dx++){
-                    for(unsigned int dy = 0; dy <= r; dy++){
-                        const unsigned int mag2 = dx * dx + dy * dy;
-                        if(mag2 <= r2){
-                            bool lXInBounds = cx >= dx + r && cx - dx - r < width;
-                            bool rXInBounds = cx + dx >= + r && cx + dx - r < width;
+                    for(unsigned int dx = 0; dx <= r; dx++){
+                        for(unsigned int dy = 0; dy <= r; dy++){
+                            const unsigned int mag2 = dx * dx + dy * dy;
+                            if(mag2 <= r2){
+                                bool lXInBounds = cx >= dx + r && cx - dx - r < width;
+                                bool rXInBounds = cx + dx >= + r && cx + dx - r < width;
 
-                            bool uYInBounds = cy >= dy + r && cy - dy - r < height;
-                            bool lYInBounds = cy + dy >= + r && cy + dy - r < height;
+                                bool uYInBounds = cy >= dy + r && cy - dy - r < height;
+                                bool lYInBounds = cy + dy >= + r && cy + dy - r < height;
 
-                            /*
-                            if(lXInBounds && uYInBounds) getBlock(cx - dx - r, cy - dy - r)->density += 1.0 - static_cast<float>(mag2) / r2;
-                            if(lXInBounds && lYInBounds) getBlock(cx - dx - r, cy + dy - r)->density += 1.0 - static_cast<float>(mag2) / r2;
-                            if(rXInBounds && uYInBounds) getBlock(cx + dx - r, cy - dy - r)->density += 1.0 - static_cast<float>(mag2) / r2;
-                            if(rXInBounds && lYInBounds) getBlock(cx + dx - r, cy + dy - r)->density += 1.0 - static_cast<float>(mag2) / r2;
-                            */
+                                /*
+                                if(lXInBounds && uYInBounds) getBlock(cx - dx - r, cy - dy - r)->density += 1.0 - static_cast<float>(mag2) / r2;
+                                if(lXInBounds && lYInBounds) getBlock(cx - dx - r, cy + dy - r)->density += 1.0 - static_cast<float>(mag2) / r2;
+                                if(rXInBounds && uYInBounds) getBlock(cx + dx - r, cy - dy - r)->density += 1.0 - static_cast<float>(mag2) / r2;
+                                if(rXInBounds && lYInBounds) getBlock(cx + dx - r, cy + dy - r)->density += 1.0 - static_cast<float>(mag2) / r2;
+                                */
 
-                            const double mag = sqrt(mag2);
-                            const double densitychange = 1.0 - mag / r;
-                            if(lXInBounds && uYInBounds) getBlock(cx - dx - r, cy - dy - r)->density += densitychange;
-                            if(dy > 0){
-                                if(lXInBounds && lYInBounds) getBlock(cx - dx - r, cy + dy - r)->density += densitychange;
-                            }
-                            if(dx > 0){
-                                if(rXInBounds && uYInBounds) getBlock(cx + dx - r, cy - dy - r)->density += densitychange;
+                                const double mag = sqrt(mag2);
+                                const double densitychange = 1.0 - mag / r;
+                                if(lXInBounds && uYInBounds) getBlock(cx - dx - r, cy - dy - r)->density += densitychange;
                                 if(dy > 0){
-                                    if(rXInBounds && lYInBounds) getBlock(cx + dx - r, cy + dy - r)->density += densitychange;
+                                    if(lXInBounds && lYInBounds) getBlock(cx - dx - r, cy + dy - r)->density += densitychange;
+                                }
+                                if(dx > 0){
+                                    if(rXInBounds && uYInBounds) getBlock(cx + dx - r, cy - dy - r)->density += densitychange;
+                                    if(dy > 0){
+                                        if(rXInBounds && lYInBounds) getBlock(cx + dx - r, cy + dy - r)->density += densitychange;
+                                    }
                                 }
                             }
                         }
                     }
+                    i++;
                 }
+            };
+
+            std::thread threads[numThreads];
+            for(unsigned short n = 0; n < numThreads; n++){
+                threads[n] = std::thread(drawDensity);
+            }
+            for(unsigned short n = 0; n < numThreads; n++){
+                threads[n].join();
             }
         }
 
         void ErodeCrockTunnels(){
             const float waterDensity = 0.6;
-            const unsigned short numThreads = 1;
+            //const unsigned short numThreads = 1;
 
             const unsigned int waterPoints = waterDensity * width * height;
 
