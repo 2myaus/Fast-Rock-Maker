@@ -4,6 +4,8 @@
 #include <string.h>
 #include <functional>
 #include <array>
+#include <thread>
+#include <mutex>
 
 namespace fastrm{
     class Block{
@@ -98,15 +100,12 @@ namespace fastrm{
 
         void ErodeCrockTunnels(){
             const float waterDensity = 0.6;
+            const unsigned short numThreads = 16;
 
             const unsigned int waterPoints = waterDensity * width * height;
 
-            bool *waterfied = (bool*)malloc(sizeof(bool) * width * height);
-            bool *waterSurface = (bool*)malloc(sizeof(bool) * width * height);
-            //bool waterfied[width * height];
-            //bool waterSurface[width * height];
-            std::fill(waterfied, waterfied + width * height, false);
-            std::fill(waterSurface, waterSurface + width * height, false);
+            uint8_t *waterfied = (uint8_t*)malloc(sizeof(bool) * width * height); //First bit = filled, second = on the filling surface
+            std::fill(waterfied, waterfied + width * height, 0);
 
             struct waterSurfaceNode
             {
@@ -119,10 +118,12 @@ namespace fastrm{
 
             waterSurfaceNode *headNode = nullptr;
 
-            const std::function<void(unsigned int x, unsigned int y)> addSurfaceNode = [this, &headNode, &waterSurface](unsigned int x, unsigned int y) -> void{
+            std::mutex nodeLock;
+            const std::function<void(unsigned int x, unsigned int y)> addSurfaceNode = [this, &headNode, &waterfied, &nodeLock](unsigned int x, unsigned int y) -> void{
+                std::lock_guard<std::mutex> lock(nodeLock);
                 unsigned int gridoff = y * width + x;
-                if(waterSurface[gridoff]) return;
-                waterSurface[gridoff] = true;
+                if(waterfied[gridoff] >> 1) return;
+                waterfied[gridoff] |= 0b00000010;
                 waterSurfaceNode *current = headNode;
                 float density = getBlock(x, y)->density;
                 if(current == nullptr && headNode == nullptr){
@@ -131,24 +132,24 @@ namespace fastrm{
                 }
                 else{
                     while (true) {
-                    if (density < current->density) {
-                        if (current->left == nullptr) {
-                            current->left = (waterSurfaceNode *)malloc(sizeof(waterSurfaceNode));
+                        if (density < current->density) {
+                            if (current->left == nullptr) {
+                                current->left = (waterSurfaceNode *)malloc(sizeof(waterSurfaceNode));
+                                current = current->left;
+                                break;
+                            }
                             current = current->left;
-                            break;
                         }
-                        current = current->left;
-                    } else if (density >= current->density) {
-                        if (current->right == nullptr) {
-                            current->right = (waterSurfaceNode *)malloc(sizeof(waterSurfaceNode));
+                        else if (density >= current->density) {
+                            if (current->right == nullptr) {
+                                current->right = (waterSurfaceNode *)malloc(sizeof(waterSurfaceNode));
+                                current = current->right;
+                                break;
+                            }
                             current = current->right;
-                            break;
                         }
-                        current = current->right;
                     }
                 }
-                }
-
                 current->left = nullptr;
                 current->right = nullptr;
                 current->x = x;
@@ -156,7 +157,8 @@ namespace fastrm{
                 current->density = density;
             };
 
-            const std::function<waterSurfaceNode*()> getWeakestNode = [&headNode]() -> waterSurfaceNode*{
+            const std::function<waterSurfaceNode*()> getWeakestNode = [&headNode, &nodeLock]() -> waterSurfaceNode*{
+                std::lock_guard<std::mutex> lock(nodeLock);
                 waterSurfaceNode *current = headNode;
                 while(current->left != nullptr){
                     current = current->left;
@@ -164,7 +166,8 @@ namespace fastrm{
                 return current;
             };
 
-            const std::function<void()> removeWeakestNode = [&headNode]() -> void{
+            const std::function<void()> removeWeakestNode = [&headNode, &nodeLock]() -> void{
+                std::lock_guard<std::mutex> lock(nodeLock);
                 waterSurfaceNode *current = headNode;
                 waterSurfaceNode *parent = nullptr;
                 while(current->left != nullptr){
@@ -178,6 +181,26 @@ namespace fastrm{
                 }
                 parent->left = current->right;
                 free(current);
+            };
+
+            const std::function<waterSurfaceNode()> getAndRemoveWeakestNode = [&headNode, &nodeLock]() -> waterSurfaceNode{
+                std::lock_guard<std::mutex> lock(nodeLock);
+                waterSurfaceNode *current = headNode;
+                waterSurfaceNode *parent = nullptr;
+                while(current->left != nullptr){
+                    parent = current;
+                    current = current->left;
+                }
+                if(parent == nullptr){
+                    headNode = current->right;
+                    goto freeAndReturn;
+                }
+                parent->left = current->right;
+
+freeAndReturn:
+                waterSurfaceNode copy = *current;
+                free(current);
+                return copy;
             };
 
             const std::function<void(const waterSurfaceNode*)> freeNode = [&freeNode, &headNode, &removeWeakestNode](const waterSurfaceNode *toFree) -> void{
@@ -195,40 +218,50 @@ namespace fastrm{
 
             addSurfaceNode(width / 2, 0);
 
-            for(unsigned int i = 0; i < waterPoints; i++){
-                const waterSurfaceNode weakestNode = *getWeakestNode();
-                //TODO: Add getAndRemove
-                removeWeakestNode();
+            unsigned int i = 0;
+            const std::function<void()> erodeTunnels = [&i, &waterPoints, &addSurfaceNode, &getAndRemoveWeakestNode, &waterfied, this]() -> void{
+                while(i < waterPoints){
+                    const waterSurfaceNode weakestNode = getAndRemoveWeakestNode();
 
-                if(waterfied[weakestNode.y * width + weakestNode.x]){
-                    throw "Already waterfied!";
-                }
-                emptyBlock(weakestNode.x, weakestNode.y);
-                waterfied[weakestNode.y * width + weakestNode.x] = true;
+                    if(waterfied[weakestNode.y * width + weakestNode.x] & 0b00000001){
+                        throw "Already waterfied!";
+                    }
+                    emptyBlock(weakestNode.x, weakestNode.y);
+                    waterfied[weakestNode.y * width + weakestNode.x] |= 0b00000001;
 
-                if(weakestNode.x > 0){
-                    addSurfaceNode(weakestNode.x - 1, weakestNode.y);
-                }
-                if(weakestNode.x < this->width - 1){
-                    addSurfaceNode(weakestNode.x + 1, weakestNode.y);
-                }
+                    if(weakestNode.x > 0){
+                        addSurfaceNode(weakestNode.x - 1, weakestNode.y);
+                    }
+                    if(weakestNode.x < this->width - 1){
+                        addSurfaceNode(weakestNode.x + 1, weakestNode.y);
+                    }
 
-                if(weakestNode.y > 0){
-                    addSurfaceNode(weakestNode.x, weakestNode.y - 1);
+                    if(weakestNode.y > 0){
+                        addSurfaceNode(weakestNode.x, weakestNode.y - 1);
+                    }
+                    if(weakestNode.y < this->height - 1){
+                        addSurfaceNode(weakestNode.x, weakestNode.y + 1);
+                    }
+                    i++;
                 }
-                if(weakestNode.y < this->height - 1){
-                    addSurfaceNode(weakestNode.x, weakestNode.y + 1);
-                }
+            };
+
+            std::thread threads[numThreads];
+            for(unsigned short n = 0; n < numThreads; n++){
+                threads[n] = std::thread(erodeTunnels);
+            }
+            for(unsigned short n = 0; n < numThreads; n++){
+                threads[n].join();
             }
 
             freeNode(headNode);
         }
 
-        void CellSmooth(){
-            for(unsigned int x = 0; x < width; x++){
-                for(unsigned int y = 0; y < width; y++){
+        void SmoothCellSection(unsigned int xi, unsigned int yi, unsigned int xf, unsigned int yf){ //Smooth a rectangular area from xi, yi to xf, yf excluding xf/yf
+            for(unsigned int x = xi; x < xf; x++){
+                for(unsigned int y = yi; y < yf; y++){
                     unsigned short numNeighbors = 0;
-                    
+
                     if(x>0 && getBlock(x-1,y)->density > 0) numNeighbors++;
                     if(x+1<width && getBlock(x+1,y)->density > 0) numNeighbors++;
                     if(y>0 && getBlock(x,y-1)->density > 0) numNeighbors++;
@@ -242,6 +275,37 @@ namespace fastrm{
                         emptyBlock(x,y);
                     }
                 }
+            }
+        }
+
+        void ThreadedCellSmooth(unsigned short horSecs, unsigned short vertSecs){ //Number of threads = horSecs * vertSecs
+
+            unsigned int horDivisions[horSecs + 1];
+            unsigned int vertDivisions[vertSecs + 1];
+
+            for(unsigned short horSec = 0; horSec < horSecs; horSec++){
+                horDivisions[horSec] = width * horSec / horSecs;
+            }
+            for(unsigned short vertSec = 0; vertSec < vertSecs; vertSec++){
+                vertDivisions[vertSec] = height * vertSec / vertSecs;
+            }
+            horDivisions[horSecs] = width;
+            vertDivisions[vertSecs] = height;
+
+            std::thread threads[horSecs * vertSecs];
+
+            for(unsigned short horSec = 0; horSec < horSecs; horSec++){
+                for(unsigned short vertSec = 0; vertSec < vertSecs; vertSec++){
+                    unsigned int xi = horDivisions[horSec];
+                    unsigned int xf = horDivisions[horSec + 1];
+                    unsigned int yi = vertDivisions[vertSec];
+                    unsigned int yf = vertDivisions[vertSec + 1];
+                    threads[vertSec * horSecs + horSec] = std::thread(&fastrm::Cave::SmoothCellSection, this, xi, yi, xf, yf);
+                }
+            }
+
+            for(unsigned short t = 0; t < horSecs * vertSecs; t++){
+                threads[t].join();
             }
         }
 
@@ -276,7 +340,7 @@ namespace fastrm{
             ErodeCrockTunnels();
         }
         void Smooth(){
-            CellSmooth();
+            ThreadedCellSmooth(5, 5);
         }
     };
 }
