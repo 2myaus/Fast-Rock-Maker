@@ -79,10 +79,17 @@ namespace fastrm{
                             */
 
                             const double mag = sqrt(mag2);
-                            if(lXInBounds && uYInBounds) getBlock(cx - dx - r, cy - dy - r)->density += 1.0 - mag / r;
-                            if(lXInBounds && lYInBounds) getBlock(cx - dx - r, cy + dy - r)->density += 1.0 - mag / r;
-                            if(rXInBounds && uYInBounds) getBlock(cx + dx - r, cy - dy - r)->density += 1.0 - mag / r;
-                            if(rXInBounds && lYInBounds) getBlock(cx + dx - r, cy + dy - r)->density += 1.0 - mag / r;
+                            const double densitychange = 1.0 - mag / r;
+                            if(lXInBounds && uYInBounds) getBlock(cx - dx - r, cy - dy - r)->density += densitychange;
+                            if(dy > 0){
+                                if(lXInBounds && lYInBounds) getBlock(cx - dx - r, cy + dy - r)->density += densitychange;
+                            }
+                            if(dx > 0){
+                                if(rXInBounds && uYInBounds) getBlock(cx + dx - r, cy - dy - r)->density += densitychange;
+                                if(dy > 0){
+                                    if(rXInBounds && lYInBounds) getBlock(cx + dx - r, cy + dy - r)->density += densitychange;
+                                }
+                            }
                         }
                     }
                 }
@@ -90,12 +97,14 @@ namespace fastrm{
         }
 
         void ErodeCrockTunnels(){
-            const float waterDensity = 0.4;
+            const float waterDensity = 0.6;
 
             const unsigned int waterPoints = waterDensity * width * height;
 
-            bool waterfied[width * height];
-            bool waterSurface[width * height];
+            bool *waterfied = (bool*)malloc(sizeof(bool) * width * height);
+            bool *waterSurface = (bool*)malloc(sizeof(bool) * width * height);
+            //bool waterfied[width * height];
+            //bool waterSurface[width * height];
             std::fill(waterfied, waterfied + width * height, false);
             std::fill(waterSurface, waterSurface + width * height, false);
 
@@ -215,6 +224,28 @@ namespace fastrm{
             freeNode(headNode);
         }
 
+        void CellSmooth(){
+            for(unsigned int x = 0; x < width; x++){
+                for(unsigned int y = 0; y < width; y++){
+                    const Block *current = getBlock(x,y);
+                    unsigned short numNeighbors = 0;
+                    
+                    if(x>0 && getBlock(x-1,y)->density > 0) numNeighbors++;
+                    if(x+1<width && getBlock(x+1,y)->density > 0) numNeighbors++;
+                    if(y>0 && getBlock(x,y-1)->density > 0) numNeighbors++;
+                    if(y+1<height && getBlock(x,y+1)->density > 0) numNeighbors++;
+                    if(x>0 && y>0 && getBlock(x-1,y-1)->density > 0) numNeighbors++;
+                    if(x+1<width && y>0 && getBlock(x+1,y-1)->density > 0) numNeighbors++;
+                    if(x>0 && y+1<height && getBlock(x-1,y+1)->density > 0) numNeighbors++;
+                    if(x+1<width && y+1<height && getBlock(x+1,y+1)->density > 0) numNeighbors++;
+
+                    if(numNeighbors < 4){
+                        emptyBlock(x,y);
+                    }
+                }
+            }
+        }
+
         public:
 
         unsigned int getWidth(){
@@ -245,14 +276,20 @@ namespace fastrm{
         void Erode(){
             ErodeCrockTunnels();
         }
+        void Smooth(){
+            CellSmooth();
+        }
     };
 }
 
 int main(){
     fastrm::Cave cave = fastrm::Cave(2000, 2000);
     cave.PopulateDensity();
-    cave.Erode();
     printf("Population done\n");
+    cave.Erode();
+    printf("Erosion done\n");
+    cave.Smooth();
+    printf("Smoothing done\n");
 
     float maxVal = 0;
     for (int y = 0; y < cave.getHeight(); y++) {
