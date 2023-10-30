@@ -51,7 +51,7 @@ namespace fastrm{
             std::uniform_int_distribution<unsigned int> randR(meanRadius - maxRadiusDeviation, meanRadius + maxRadiusDeviation);
 
             for(unsigned int i = 0; i < numPoints; i++){
-                const int r = randR(gen);
+                const unsigned int r = randR(gen);
 
                 std::uniform_int_distribution<unsigned int> randX(0, width - 1 + 2 * r);
                 std::uniform_int_distribution<unsigned int> randY(0, height - 1 + 2 * r);
@@ -227,7 +227,6 @@ namespace fastrm{
         void CellSmooth(){
             for(unsigned int x = 0; x < width; x++){
                 for(unsigned int y = 0; y < width; y++){
-                    const Block *current = getBlock(x,y);
                     unsigned short numNeighbors = 0;
                     
                     if(x>0 && getBlock(x-1,y)->density > 0) numNeighbors++;
@@ -292,8 +291,8 @@ int main(){
     printf("Smoothing done\n");
 
     float maxVal = 0;
-    for (int y = 0; y < cave.getHeight(); y++) {
-        for (int x = 0; x < cave.getWidth(); x++) {
+    for (unsigned int y = 0; y < cave.getHeight(); y++) {
+        for (unsigned int x = 0; x < cave.getWidth(); x++) {
             maxVal = std::max(maxVal, cave.getBlock(x, y)->density);
         }
     }
@@ -307,8 +306,8 @@ int main(){
     image << "255" << std::endl; // Max color value
 
     // Loop through the heatmap data and fill the image buffer.
-    for (int y = 0; y < cave.getHeight(); y++) {
-        for (int x = 0; x < cave.getWidth(); x++) {
+    for (unsigned int y = 0; y < cave.getHeight(); y++) {
+        for (unsigned int x = 0; x < cave.getWidth(); x++) {
             uint8_t intensity = static_cast<uint8_t>(255 * cave.getBlock(x, y)->density / maxVal);
             if(intensity == 0){
                 image << "255 0 0 ";
