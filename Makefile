@@ -7,5 +7,9 @@ SRC = main.cpp
 $(TARGET): $(SRC)
 	$(CXX) $(CXXFLAGS) -o $(TARGET) $(SRC)
 
+image: $(TARGET)
+	./$(TARGET)
+	ffmpeg -y -i heatmap.ppm heatmap.png
+
 clean:
 	rm -f $(TARGET)
