@@ -1,21 +1,45 @@
+# Compiler
 CXX = g++
-CXXFLAGS = -std=c++11 -Wall
+WASM_CXX = em++
 
-OPTIMIZE_FLAGS = -Ofast -ffast-math -march=native -funroll-loops -finline-functions -flto
-CXXFLAGS += $(OPTIMIZE_FLAGS)
+# Compiler flags
+CXXFLAGS = -Wall -Wextra
+WASM_FLAGS = --no-entry
 
-TARGET = fastrm
-SRC = main.cpp
+OPTIMIZE_FLAGS = -Ofast -ffast-math -march=native -funroll-loops -finline-functions -flto #TODO: Implement these
 
-$(TARGET): $(SRC)
-	$(CXX) $(CXXFLAGS) -o $(TARGET) $(SRC)
+# Library name
+LIBRARY = libfastrm.a
 
-image: $(TARGET)
-	./$(TARGET)
-	ffmpeg -y -i heatmap.ppm heatmap.png
+# Archiver
+AR = ar
+WASM_AR = emar
 
-optimize: clean
-	$(CXX) $(CXXFLAGS) -o $(TARGET) $(SRC)
+# Source files
+SRC = fastrm.cpp
+
+# Header files
+HEADERS = pieces.hpp squares.hpp
+
+# Object files
+OBJS = $(SRC:.cpp=.o)
+
+all: $(LIBRARY)
+
+
+debug: $(LIBRARY)
+debug: CXXFLAGS += -g
+
+wasm: $(LIBRARY)
+wasm: CXXFLAGS += $(WASM_FLAGS)
+wasm: CXX = $(WASM_CXX)
+wasm: AR = $(WASM_AR)
+
+$(LIBRARY): $(OBJS)
+	$(AR) rcs $@ $(OBJS)
+
+%.o: %.cpp $(HEADERS)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(TARGET)
+	rm -f $(OBJS) $(LIBRARY)

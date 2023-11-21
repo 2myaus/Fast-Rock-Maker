@@ -1,4 +1,6 @@
 /*
 !.gitignore
-!main.cpp
 !Makefile
+!fastrm.cpp
+!demo/
+!demo/*
